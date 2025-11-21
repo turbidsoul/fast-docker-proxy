@@ -32,8 +32,12 @@ Use it as a drop-in HTTPS endpoint for Docker clients (as a registry mirror or a
   - Auto-inserts `library/` for official images
   - Manually follows 307 redirects for blob downloads
 - 🐍 **Pure Python / FastAPI / httpx**
-  - Easy to run as a standalone service or behind nginx/Caddy/Traefik
+  - Easy to run as a standalone service or behind nginx / Caddy / Traefik
   - Suitable for self-hosted setups / labs / testing environments
+- ⚡ **High performance**
+  - Async I/O with httpx for concurrent requests
+  - Streaming responses for large blobs
+  - Minimal RAM / disk usage
 
 ## Configuration
 
@@ -45,15 +49,15 @@ The proxy behavior is controlled via environment variables:
   - ghcr.example.com → GitHub Container Registry
 - MODE
   Mode of operation:
-  - "prod" (default): normal behavior
-  - "debug": if the host is not in the routing table, fall back to TARGET_UPSTREAM.
+  - `prod` (default): normal behavior
+  - `debug`: if the host is not in the routing table, fall back to TARGET_UPSTREAM.
 - TARGET_UPSTREAM
   Only used when MODE=debug.
-  Default: https://registry-1.docker.io.
+  Default: `https://registry-1.docker.io`.
 
 ## Running the Proxy
 
-1. Directly with Python
+### Directly with Python
 
 You can simply run:
 
@@ -69,7 +73,7 @@ This will start the HTTP server on:
 
 You will typically place a TLS-terminating reverse proxy (nginx / Caddy / Traefik) in front of it.
 
-2. Using uvicorn directly
+### Using uvicorn directly
 
 Alternatively, you can run it via uvicorn:
 
@@ -84,26 +88,30 @@ Adjust the module path (main:app) to match your file / package layout.
 
 ## Using with Docker
 
-1. Pull from the proxy by hostname
+### Pull from the proxy by hostname
 
 Once DNS + TLS + nginx are set up, you can pull images via your proxy:
 
+```sh
 docker pull docker.example.com/library/busybox:latest
+```
 
 For Docker Hub official images (like busybox, alpine, etc.), the proxy will:
-- Accept requests like /v2/busybox/manifests/latest
-- Internally rewrite to /v2/library/busybox/manifests/latest for Docker Hub
+- Accept requests like `/v2/busybox/manifests/latest`
+- Internally rewrite to `/v2/library/busybox/manifests/latest` for Docker Hub
 - Handle token auth + blob redirects for you
 
 You can also pull non-library images, e.g.:
 
+```sh
 docker pull docker.example.com/bitnami/mariadb:latest
+```
 
-2. Use as a registry mirror (daemon-level)
+### Use as a registry mirror (daemon-level)
 
 On some setups you can configure Docker's daemon to use your proxy as a registry mirror (though this proxy behaves slightly differently from a pure mirror, since it's a smart HTTP proxy with auth logic).
 
-Example /etc/docker/daemon.json snippet:
+Example `/etc/docker/daemon.json` snippet:
 
 ```json
 {
@@ -115,19 +123,19 @@ Example /etc/docker/daemon.json snippet:
 
 Restart Docker afterwards.
 
-Note: exact behavior may depend on your environment and how strict your registry usage is. For complex setups (multiple upstreams, private images, etc.), using explicit hostnames (docker.example.com/...) is often easier to reason about.
+Note: exact behavior may depend on your environment and how strict your registry usage is. For complex setups (multiple upstreams, private images, etc.), using explicit hostnames (`docker.example.com/...`) is often easier to reason about.
 
 ## Limitations & Notes
 
 This is a reverse proxy, not a full registry implementation. It relies on the upstream registry to:
 - Provide authentication (WWW-Authenticate),
-- Serve /v2/ and /v2/auth,
+- Serve `/v2/` and `/v2/auth`,
 - Host the actual image data.
 
-If an image/tag is removed or no longer available on Docker Hub (e.g. some Bitnami images), the proxy will also return the same errors (e.g. 404 / manifest unknown).
+If an image / tag is removed or no longer available on Docker Hub (e.g. some Bitnami images), the proxy will also return the same errors (e.g. 404 / manifest unknown).
 
 For production scenarios, you may want to add:
-- Logging/metrics (e.g. via middleware),
+- Logging / metrics (e.g. via middleware),
 - Rate limiting / access control,
 - Persistent TLS termination with a proper reverse proxy.
 
