@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from urllib.parse import urljoin, urlencode
 from contextlib import asynccontextmanager
+from starlette.background import BackgroundTask
 import uvicorn
 
 dotenv.load_dotenv()
@@ -235,65 +236,88 @@ async def proxy(full_path: str, request: Request):
 
     assert client is not None, "HTTP client not initialized"
 
-    async with client.stream(
+    # Build and send a streaming request without using an async context manager,
+    # so that we can keep the stream open until the response is fully consumed.
+    req = client.build_request(
         request.method,
         upstream_url,
         headers=forward_headers,
+    )
+    upstream_resp = await client.send(
+        req,
+        stream=True,
         follow_redirects=follow,
-    ) as upstream_resp:
-        status_code = upstream_resp.status_code
-        response_headers = dict(upstream_resp.headers)
+    )
 
-        print(
-            f"Proxying: {upstream_url}, headers: {forward_headers}, status: {status_code}"
+    status_code = upstream_resp.status_code
+    response_headers = dict(upstream_resp.headers)
+
+    print(
+        f"Proxying: {upstream_url}, headers: {forward_headers}, status: {status_code}"
+    )
+
+    # 6A. Unauthorized
+    if status_code == 401:
+        # Close upstream response before returning
+        await upstream_resp.aclose()
+        return response_unauthorized(host)
+
+    # 6B. DockerHub requires manual handling of 307 blob redirects
+    if is_dockerhub and status_code == 307:
+        location = upstream_resp.headers.get("Location")
+        if not location:
+            # No Location header—return 307 as-is but with an empty body
+            await upstream_resp.aclose()
+
+            async def iter_empty():
+                if False:
+                    yield b""
+
+            return StreamingResponse(
+                iter_empty(),
+                status_code=status_code,
+                headers=response_headers,
+            )
+
+        # Close the initial 307 response before following the redirect
+        await upstream_resp.aclose()
+
+        # Manually stream the redirected blob
+        blob_req = client.build_request("GET", location)
+        blob_resp = await client.send(
+            blob_req,
+            stream=True,
+            follow_redirects=True,
         )
+        blob_headers = dict(blob_resp.headers)
 
-        # 6A. Unauthorized
-        if status_code == 401:
-            return response_unauthorized(host)
-
-        # 6B. DockerHub requires manual handling of 307 blob redirects
-        if is_dockerhub and status_code == 307:
-            location = upstream_resp.headers.get("Location")
-            if not location:
-                # No Location header—return 307 as-is but with an empty body
-                async def iter_empty():
-                    if False:
-                        yield b""
-
-                return StreamingResponse(
-                    iter_empty(),
-                    status_code=status_code,
-                    headers=response_headers,
-                )
-
-            # Manually stream the redirected blob
-            async with client.stream(
-                "GET",
-                location,
-                follow_redirects=True,
-            ) as blob_resp:
-                blob_headers = dict(blob_resp.headers)
-
-                # Remove hop-by-hop headers
-                for h in hop_by_hop:
-                    blob_headers.pop(h, None)
-
-                return StreamingResponse(
-                    blob_resp.aiter_bytes(),
-                    status_code=blob_resp.status_code,
-                    headers=blob_headers,
-                )
-
-        # Regular streaming proxy response
+        # Remove hop-by-hop headers
         for h in hop_by_hop:
-            response_headers.pop(h, None)
+            blob_headers.pop(h, None)
+
+        # Use a background task to close blob_resp once streaming is done
+        background = BackgroundTask(blob_resp.aclose)
 
         return StreamingResponse(
-            upstream_resp.aiter_bytes(),
-            status_code=status_code,
-            headers=response_headers,
+            blob_resp.aiter_bytes(),
+            status_code=blob_resp.status_code,
+            headers=blob_headers,
+            background=background,
         )
+
+    # Regular streaming proxy response
+    for h in hop_by_hop:
+        response_headers.pop(h, None)
+
+    # Use a background task to close upstream_resp when done streaming
+    background = BackgroundTask(upstream_resp.aclose)
+
+    return StreamingResponse(
+        upstream_resp.aiter_bytes(),
+        status_code=status_code,
+        headers=response_headers,
+        background=background,
+    )
 
 
 if __name__ == "__main__":
