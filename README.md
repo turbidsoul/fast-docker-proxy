@@ -140,3 +140,8 @@ For production scenarios, you may want to add:
 - Persistent TLS termination with a proper reverse proxy.
 
 Use with caution in production and review the upstream registries' terms of service.
+
+## Other Mirrors
+
+- [境内 Docker 镜像状态监控](https://status.anye.xyz)
+- [Docker mirror](https://mirror.kentxxq.com/image)
