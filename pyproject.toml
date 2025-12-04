@@ -1,0 +1,18 @@
+[project]
+name = "fast-docker-proxy"
+version = "0.1.0"
+description = "Fast Docker Proxy is a FastAPI-based Docker Registry reverse proxy inspired by cloudflare-docker-proxy."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dotenv>=0.9.9",
+    "fastapi>=0.123.6",
+    "httpx>=0.28.1",
+]
+
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk"
+]

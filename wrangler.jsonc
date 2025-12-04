@@ -1,0 +1,17 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "fast-docker-proxy",
+	"main": "main.py",
+	"compatibility_date": "2025-12-04",
+	"compatibility_flags": [
+		"python_workers",
+		"python_dedicated_snapshot"
+	],
+	"vars": {
+		"CUSTOM_DOMAIN": "fast-docker-proxy.example.com",
+    "MODE": "dev"
+	},
+	"observability": {
+		"enabled": true
+	}
+}
